@@ -1,0 +1,174 @@
+#!/bin/bash
+
+# YouTube Search and Play Script
+# Dependencies: yt-dlp, mpv, jq
+
+check_dependencies() {
+    local missing_deps=()
+    
+    if ! command -v yt-dlp &> /dev/null; then
+        missing_deps+=("yt-dlp")
+    fi
+    
+    if ! command -v mpv &> /dev/null; then
+        missing_deps+=("mpv")
+    fi
+    
+    if ! command -v jq &> /dev/null; then
+        missing_deps+=("jq")
+    fi
+    
+    if [ ${#missing_deps[@]} -ne 0 ]; then
+        echo "Missing dependencies: ${missing_deps[*]}"
+        echo "Please install them using your package manager:"
+        echo "Ubuntu/Debian: sudo apt install yt-dlp mpv jq"
+        echo "Arch Linux: sudo pacman -S yt-dlp mpv jq"
+        echo "Fedora: sudo dnf install yt-dlp mpv jq"
+        exit 1
+    fi
+}
+
+search_youtube() {
+    local query="$1"
+    local max_results=10
+    
+    echo "Searching YouTube for: $query" >&2
+    
+    yt-dlp "ytsearch${max_results}:$query" \
+        --dump-json \
+        --no-download \
+        --flat-playlist 2>/dev/null
+}
+
+show_menu() {
+    local -a titles=("$@")
+    local selected=0
+    local total=${#titles[@]}
+    
+    # Hide cursor
+    tput civis
+    
+    # Clear screen
+    clear
+    
+    while true; do
+        # Move cursor to top
+        tput cup 0 0
+        
+        echo "Select a video to play (↑/↓ to navigate, Enter to select, q to quit):"
+        echo ""
+        
+        # Display options
+        for i in "${!titles[@]}"; do
+            if [ $i -eq $selected ]; then
+                echo "► $((i+1)). ${titles[i]}"
+            else
+                echo "  $((i+1)). ${titles[i]}"
+            fi
+        done
+        
+        # Read key input
+        read -rsn1 key
+        
+        case "$key" in
+            $'\x1b')  # Escape sequence
+                read -rsn2 key
+                case "$key" in
+                    '[A') # Up arrow
+                        if [ $selected -gt 0 ]; then
+                            ((selected--))
+                        fi
+                        ;;
+                    '[B') # Down arrow
+                        if [ $selected -lt $((total-1)) ]; then
+                            ((selected++))
+                        fi
+                        ;;
+                esac
+                ;;
+            '')  # Enter key
+                # Show cursor again
+                tput cnorm
+                return $selected
+                ;;
+            'q'|'Q')  # Quit
+                # Show cursor again
+                tput cnorm
+                echo ""
+                echo "Cancelled."
+                exit 0
+                ;;
+        esac
+    done
+}
+
+main() {
+    check_dependencies
+    
+    # Get search query
+    if [ $# -eq 0 ]; then
+        echo -n "What do you want to search for? "
+        read -r search_query
+    else
+        search_query="$*"
+    fi
+    
+    if [ -z "$search_query" ]; then
+        echo "No search query provided."
+        exit 1
+    fi
+    
+    # Search YouTube
+    echo "Searching..."
+    
+    # Create temporary files
+    temp_json=$(mktemp)
+    temp_urls=$(mktemp)
+    temp_titles=$(mktemp)
+    
+    # Cleanup function
+    cleanup() {
+        rm -f "$temp_json" "$temp_urls" "$temp_titles"
+    }
+    trap cleanup EXIT
+    
+    if ! search_youtube "$search_query" > "$temp_json"; then
+        echo "Error: Failed to search YouTube"
+        exit 1
+    fi
+    
+    if [ ! -s "$temp_json" ]; then
+        echo "No results found for: $search_query"
+        exit 1
+    fi
+    
+    # Extract URLs and titles
+    jq -r '.webpage_url // .url' "$temp_json" > "$temp_urls" 2>/dev/null
+    jq -r '.title' "$temp_json" > "$temp_titles" 2>/dev/null
+    
+    # Read titles into array
+    mapfile -t video_titles < "$temp_titles"
+    mapfile -t video_urls < "$temp_urls"
+    
+    # Check if we have any results
+    if [ ${#video_titles[@]} -eq 0 ]; then
+        echo "No videos found for: $search_query"
+        exit 1
+    fi
+    
+    show_menu "${video_titles[@]}"
+    selected_index=$?
+    
+    # Get selected video URL
+    selected_url="${video_urls[$selected_index]}"
+    selected_title="${video_titles[$selected_index]}"
+    
+    echo ""
+    echo "Playing: $selected_title"
+    echo "URL: $selected_url"
+    echo ""
+    
+    mpv "$selected_url"
+}
+
+main "$@"
