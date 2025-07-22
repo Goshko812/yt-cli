@@ -1,5 +1,9 @@
 # yt-cli
 
+![trash code](https://img.shields.io/badge/code-trash%20🗑️-red)
+![works](https://img.shields.io/badge/works-on%20my%20machine-brightgreen)
+![bash magic](https://img.shields.io/badge/powered%20by-bash%20and%20hope-yellow)
+
 A very *questionably* written Bash script that lets you:
 
 - 🔍 Search YouTube  
